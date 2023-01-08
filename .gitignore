@@ -38,3 +38,5 @@ captures
 
 # Python cache
 __pycache__
+/tmp/
+/data/
