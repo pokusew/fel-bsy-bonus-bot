@@ -1,11 +1,15 @@
-import os
-from time import sleep
-from git import GithubGistClient
 import argparse
+import os
+import select
 import shutil
+import sys
+from time import sleep
+
+from git import GithubGistClient
 
 IMAGES_LIBRARY = '4c7fe7e6d06b0b90ab4848b234209e95'
 CONTROL_IMAGE = 'security.jpg'
+UPDATE_INTERVAL = 30  # seconds
 
 
 class Controller:
@@ -15,7 +19,7 @@ class Controller:
         self._gist = gist
         self._token = token
 
-    def _setup(self):
+    def _setup(self) -> None:
         print(f'removing and re-creating workdir {self._workdir}...')
         shutil.rmtree(self._workdir)
         os.makedirs(self._workdir)
@@ -48,15 +52,34 @@ class Controller:
         print(f'cloning the gist from {self._comm_client.get_https_url(with_token=False)} to {self._comm_dir} ...')
         self._comm_client.clone()
 
+        self._bots = {}
+
         pass
 
-    def run(self):
+    def update_state(self) -> None:
+        print('updating bots state ...')
+        pass
+
+    def process_command(self, cmd_str) -> None:
+        print(f"processing command '{cmd_str}'")
+        pass
+
+    def run(self) -> None:
         self._setup()
 
-        # while True:
-        #     print('test')
-        #     sleep(5)
-        # pass
+        while True:
+            print('Enter a command. Type help for help.\n> ', end='')
+            ready_read, _, _ = select.select([sys.stdin], [], [], UPDATE_INTERVAL)
+            if len(ready_read) == 1:
+                cmd_str = sys.stdin.readline().strip()
+                self.process_command(cmd_str)
+            self.update_state()
+
+        pass
+
+    def stop(self) -> None:
+        print('Stopping the controller. Note that the bots might still be running.')
+        print('Use terminate command to stop a specific bot.')
 
     pass
 
@@ -75,4 +98,7 @@ if __name__ == '__main__':
         gist=args.gist,
         token=args.token
     )
-    controller.run()
+    try:
+        controller.run()
+    except KeyboardInterrupt:
+        controller.stop()
