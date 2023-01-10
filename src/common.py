@@ -1,7 +1,73 @@
 import os
 import shutil
 import subprocess
-from typing import Optional, List
+from typing import Optional, List, Any
+import time
+import json
+
+IMAGES_LIBRARY = '4c7fe7e6d06b0b90ab4848b234209e95'
+CONTROL_IMAGE = 'security.jpg'
+UPDATE_INTERVAL = 30  # seconds
+KEEP_ALIVE_TIMEOUT = 90 * 1000  # milliseconds
+
+TMP_STATE_FILE = 'state.json'
+TMP_ZIP_FILE = 'data.zip'
+
+
+def is_image(file_name: str):
+    return file_name.endswith('.png') or file_name.endswith('.jpg')
+
+
+def now_ms() -> int:
+    return time.time_ns() // 1000_000
+
+
+def encode_data(image_file: str, data: Any, output_file: str):
+    with open(TMP_STATE_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False)
+    subprocess.check_call(
+        # needed otherwise zip output will be different every time because zip stores modification times
+        args=['touch', '-t', '202212241800.00', TMP_STATE_FILE],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    subprocess.check_call(
+        # -j junk paths (do not make directories)
+        # -X Do not save extra file attributes (Extended Attributes on OS/2, uid/gid and file times on Unix).
+        #    see https://stackoverflow.com/a/9714323
+        args=['zip', '-jX', TMP_ZIP_FILE, TMP_STATE_FILE],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    subprocess.check_call(
+        args=f"cat '{image_file}' '{TMP_ZIP_FILE}' > '{output_file}'",
+        shell=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    os.remove(TMP_STATE_FILE)
+    os.remove(TMP_ZIP_FILE)
+
+
+def decode_data(image_file_with_data: str) -> Any:
+    # we are not checking exit code here because while unzipping the images with appended ZIP data
+    # unzip produces warning [<file name>]:  xxx extra bytes at beginning or within zipfile
+    # and exits a non-zero exit code
+    # we could parse its stdout/stderr to find out if something was actually extracted
+    subprocess.call(
+        # -j junk paths (do not make directories)
+        # -o overwrite files WITHOUT prompting
+        args=['unzip', '-jo', image_file_with_data],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    data = None
+    if os.path.isfile(TMP_STATE_FILE):
+        with open(TMP_STATE_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        os.remove(TMP_STATE_FILE)
+    # note: if there were multiple files extracted from the image, they will remain in the workdir
+    return data
 
 
 class GithubGistClient:
@@ -43,6 +109,8 @@ class GithubGistClient:
         subprocess.check_call(
             args=['git'] + args,
             cwd=self._repo_dir,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
 
     def clone(self) -> None:
@@ -55,6 +123,8 @@ class GithubGistClient:
                 os.path.basename(self._repo_dir),
             ],
             cwd=os.path.dirname(self._repo_dir),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
 
     def init(self, skip_reset: bool = False, skip_pull: bool = False) -> None:
@@ -79,6 +149,8 @@ class GithubGistClient:
         code = subprocess.call(
             args=['git', 'add'] + pathspecs,
             cwd=self._repo_dir,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         return code == 0
 
@@ -89,6 +161,8 @@ class GithubGistClient:
         code = subprocess.call(
             args=args,
             cwd=self._repo_dir,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         return code == 0
 
@@ -100,6 +174,8 @@ class GithubGistClient:
                 '--ff-only',
             ],
             cwd=self._repo_dir,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         return code == 0
 
@@ -110,6 +186,8 @@ class GithubGistClient:
                 'fetch',
             ],
             cwd=self._repo_dir,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         return code == 0
 
@@ -120,6 +198,8 @@ class GithubGistClient:
                 'rebase',
             ],
             cwd=self._repo_dir,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         if code != 0:
             subprocess.call(
@@ -129,6 +209,8 @@ class GithubGistClient:
                     '--abort'
                 ],
                 cwd=self._repo_dir,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
         return code == 0
 
@@ -139,6 +221,8 @@ class GithubGistClient:
                 'push',
             ],
             cwd=self._repo_dir,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         return code == 0
 

