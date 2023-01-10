@@ -6,10 +6,14 @@ from typing import Optional, List
 
 class GithubGistClient:
 
-    def __init__(self, gist: str, repo_dir: str, token: Optional[str] = None) -> None:
+    def __init__(self, gist: str, repo_dir: str, token: Optional[str] = None, author: Optional[str] = None) -> None:
         self._gist = gist
         self._token = token
         self._repo_dir = repo_dir
+        self.author = author
+
+    def get_repo_dir(self) -> str:
+        return self._repo_dir
 
     def get_https_url(self, with_token: bool = False) -> str:
         token = self._token + '@' if (with_token and self._token is not None) else ''
@@ -78,9 +82,12 @@ class GithubGistClient:
         )
         return code == 0
 
-    def commit(self, message='Update') -> bool:
+    def commit(self, message: str = 'Update') -> bool:
+        args = ['git', 'commit', '-m', message]
+        if self.author is not None:
+            args += [f'--author={self.author}']
         code = subprocess.call(
-            args=['git', 'commit', '-m', message],
+            args=args,
             cwd=self._repo_dir,
         )
         return code == 0
@@ -163,5 +170,9 @@ class GithubGistClient:
             # continue with attempting to push
             continue
         raise RuntimeError(f'push_changes failed (max_retries={max_retries})')
+
+    def commit_and_push_if_needed(self, max_retries: int = 3) -> None:
+        if self.commit():
+            self.push_changes(max_retries=max_retries)
 
     pass
