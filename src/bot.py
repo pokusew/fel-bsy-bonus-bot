@@ -204,22 +204,31 @@ class Bot(ParticipantBase):
         else:
             args = shlex.split(cmd['cmd'])
 
-        p = subprocess.run(
-            args=args,
-            shell=cmd['shell'],
-            capture_output=True,
-            # TODO: if the future, sent back raw bytes (as base64) to the controller
-            #       that way we can support non utf-8 stdout/stderr data
-            encoding='utf-8',
-        )
+        try:
+            p = subprocess.run(
+                args=args,
+                shell=cmd['shell'],
+                capture_output=True,
+                # TODO: if the future, sent back raw bytes (as base64) to the controller
+                #       that way we can support non utf-8 stdout/stderr data
+                encoding='utf-8',
+            )
+            result = {
+                'id': cmd['id'],
+                'timestamp': now_ms(),
+                'exit_code': p.returncode,
+                'stdout': p.stdout,
+                'stderr': p.stderr,
+            }
+        except FileNotFoundError as ex:
+            result = {
+                'id': cmd['id'],
+                'timestamp': now_ms(),
+                'exit_code': -1,
+                'stderr': f'FileNotFoundError: {ex}',
+            }
+            pass
 
-        result = {
-            'id': cmd['id'],
-            'timestamp': now_ms(),
-            'exit_code': p.returncode,
-            'stdout': p.stdout,
-            'stderr': p.stderr,
-        }
         self._state['result'] = result
         print(f'{green}result set{rst}', result)
 
