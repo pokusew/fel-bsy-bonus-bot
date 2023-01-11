@@ -260,7 +260,7 @@ if __name__ == '__main__':
     _parser = argparse.ArgumentParser()
     _parser.add_argument(
         'workdir',
-        help='work directory where the files and directories created by the controller will be put',
+        help='work directory where the files and directories created by the bot will be put',
     )
     _parser.add_argument(
         'gist',
@@ -272,27 +272,30 @@ if __name__ == '__main__':
     )
     _parser.add_argument(
         '--author',
-        help='Override default git commit author',
+        help=(
+            'override the default git commit author'
+            ' (useful when you don\'t want to leak your global git config author value)'
+        ),
     )
     _parser.add_argument(
         '--recreate',
         action='store_true',
-        help='Remove and recreate the workdir even if it already exists',
+        help='remove and recreate the workdir even if it already exists',
     )
     _parser.add_argument(
         '--skip-init-reset',
         action='store_true',
-        help='Skip resetting the git repos if they already exist.',
+        help='skip resetting the git repos if they already exist',
     )
     _parser.add_argument(
         '--skip-init-pull',
         action='store_true',
-        help='Skip updating the git repos if they already exist.',
+        help='skip updating the git repos if they already exist',
     )
     _parser.add_argument(
         '--fast-init',
         action='store_true',
-        help='Shortcut for combination of of --skip-init-reset and --skip-init-pull.',
+        help='shortcut for combination of of --skip-init-reset and --skip-init-pull',
     )
     _args = _parser.parse_args()
     _bot = Bot(
