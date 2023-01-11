@@ -6,6 +6,7 @@ import sys
 from typing import Optional, Any, Dict, Union
 import random
 
+from terminal import gray, rst, cyan, magenta, yellow, green
 from common import \
     GithubGistClient, \
     IMAGES_LIBRARY, \
@@ -14,7 +15,7 @@ from common import \
     now_ms, \
     is_image, \
     decode_data, \
-    encode_data
+    encode_data, format_timestamp
 
 import subprocess
 
@@ -52,17 +53,17 @@ class Bot:
 
     def _ensure_workdir(self) -> None:
         if os.path.isdir(self._workdir) and self._recreate_workdir:
-            print(f'removing and re-creating workdir {self._workdir}...')
+            print(f'{gray}removing and re-creating workdir {magenta}{self._workdir}{gray}...{rst}')
             shutil.rmtree(self._workdir)
         if not os.path.isdir(self._workdir):
             os.makedirs(self._workdir)
         os.chdir(self._workdir)
-        print(f'workdir ready and set as the process current working dir')
+        print(f'{gray}workdir ready and set as the process current working dir{rst}')
 
     def _setup(self) -> None:
         self._ensure_workdir()
 
-        print('initializing images library to...')
+        print(f'{gray}initializing images library to...{rst}')
         self._lib_client.init(
             skip_reset=self._skip_init_reset,
             skip_pull=self._skip_init_pull,
@@ -70,8 +71,8 @@ class Bot:
         self._load_lib_images()
 
         print(
-            f'initializing the gist from {self._comm_client.get_https_url(with_token=False)}'
-            f' to {self._comm_client.get_repo_dir()} ...'
+            f'{gray}initializing the gist from {magenta}{self._comm_client.get_https_url(with_token=False)}{gray}'
+            f' to {magenta}{self._comm_client.get_repo_dir()}{gray} ...{rst}'
         )
         self._comm_client.init(
             skip_reset=self._skip_init_reset,
@@ -80,7 +81,7 @@ class Bot:
 
         self._name = None
         self._image = None
-        self._state = {
+        self._state: Dict[str, Union[None, int, dict]] = {
             'last_update': None,
             'result': None,
             #   id: ''
@@ -97,26 +98,30 @@ class Bot:
         while True:
             self._update_state()
             print(
-                f'\nAuto update in {UPDATE_INTERVAL} seconds. Press enter to force update.\n'
-                f'Press Ctrl-C to unregister and terminate.\n',
+                f'\nAuto update in {cyan}{UPDATE_INTERVAL}{rst} seconds. Press {yellow}enter{rst} to force update.\n'
+                f'Press {yellow}Ctrl-C{rst} to unregister and terminate.\n',
                 end='',
             )
             ready_read, _, _ = select.select([sys.stdin], [], [], UPDATE_INTERVAL)
             if len(ready_read) == 1:
                 sys.stdin.readline()
+            else:
+                # add en empty line
+                print('')
 
         pass
 
     def destroy(self) -> None:
-        print('Destroying the bot...')
+        print('\nDestroying the bot...')
         if self._comm_client is None:
             return
         self._comm_client.pull_changes()
         if os.path.exists('comm/' + self._name):
-            print('removing file...')
+            print(f'{gray}unregistering - removing image file from the gist ...{rst}')
             os.remove('comm/' + self._name)
             self._comm_client.add([self._name])
             self._comm_client.commit_and_push_if_needed()
+        print(f'{green}Successfully terminated.{rst}')
         pass
 
     def _get_command(self, control_data: None):
@@ -142,7 +147,7 @@ class Bot:
         images = list(self._lib_images - {CONTROL_IMAGE})
         self._image = random.choice(images)
         self._name = str(random.randint(0, 9999)) + '-' + self._image
-        print(f'generated name {self._name}')
+        print(f'generated name {cyan}{self._name}{rst}')
         pass
 
     def _register(self) -> None:
@@ -150,14 +155,17 @@ class Bot:
         self._generate_name()
         pass
 
-    def _update_state(self) -> None:
-        print('updating state ...')
-        self._comm_client.pull_changes()
-
-        # TODO: check registration or re-register
-
+    def _ensure_registration(self) -> None:
         if self._name is None or not os.path.exists('comm/' + self._name):
             self._register()
+        pass
+
+    def _update_state(self) -> None:
+        print(f'{gray}updating state ...{rst}')
+
+        self._comm_client.pull_changes()
+
+        self._ensure_registration()
 
         if os.path.exists('comm/' + CONTROL_IMAGE):
             control_data = decode_data('comm/' + CONTROL_IMAGE)
@@ -177,13 +185,15 @@ class Bot:
 
         self._comm_client.commit_and_push_if_needed()
 
+        print(f"{gray}successful update on {green}{format_timestamp(self._state['last_update'])}{rst}")
+
         pass
 
     def _load_lib_images(self):
         self._lib_images = set(filter(is_image, os.listdir('lib')))
-        print(f'library contains {len(self._lib_images)} images:')
-        for img in self._lib_images:
-            print(f'  {img}')
+        print(f'library contains {cyan}{len(self._lib_images)}{rst} images')
+        # for img in self._lib_images:
+        #     print(f'  {img}')
         if CONTROL_IMAGE not in self._lib_images:
             raise RuntimeError(f'Control image {CONTROL_IMAGE} is not the library!')
 

@@ -3,6 +3,7 @@ import shutil
 import subprocess
 from typing import Optional, List, Any
 import time
+from datetime import datetime
 import json
 
 IMAGES_LIBRARY = '4c7fe7e6d06b0b90ab4848b234209e95'
@@ -20,6 +21,10 @@ def is_image(file_name: str):
 
 def now_ms() -> int:
     return time.time_ns() // 1000_000
+
+
+def format_timestamp(millis: int) -> str:
+    return datetime.fromtimestamp(millis / 1000).strftime("%m/%d/%Y at %H:%M:%S")
 
 
 def encode_data(image_file: str, data: Any, output_file: str):
@@ -240,7 +245,7 @@ class GithubGistClient:
             # try push
             if self._push():
                 # successful, we are done
-                print(f'push_changes succeeded attempt={i}')
+                # print(f'push_changes succeeded attempt={i}')
                 return
             # push failed probably, because of a conflict (we could parse the stderr of git push to be sure)
             # let's try to fetch the latest
