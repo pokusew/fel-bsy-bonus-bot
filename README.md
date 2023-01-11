@@ -60,7 +60,7 @@ See the [instructions.txt](./instructions.txt) for the details.
 ## Implementation
 
 _Note: The implementation is more of a proof of a concept or demo. There are a lot of possible edge cases that we would
-like to handle in real code._
+like to handle in the real production-ready implementation._
 
 
 ### Communication protocol
@@ -88,7 +88,8 @@ Each bot upon its startup generates a random name that consists of two parts:
 1. a random prefix (0-9999)
 2. the name of a random image (except the control image security.jpg) from [the memes library][images-lib-gist]
 
-The bot it _registers_ by creating a new image with its name (for example `7273-netcat.jpg`) as a copy of the chosen
+The bot then _registers_ itself by creating a new image with its name (for example `7273-netcat.jpg`) as a copy of the
+chosen
 image (`netcat.jpg`) but with an added hidden `state.json` file:
 ```json
 {
@@ -97,15 +98,16 @@ image (`netcat.jpg`) but with an added hidden `state.json` file:
 }
 ```
 
-Then the bot periodically updates the `last_update` to the current date.
+While the bot is running, it periodically updates the `last_update` to the current date.
 Using the `last_update`, the controller can then detect which bots are alive. When the difference between the
 controller's current date and a bot's `last_update` exceeds the `KEEP_ALIVE_TIMEOUT` (currently set to 90 seconds),
 the controller assumes that bot is no longer running (it has been ungracefully stopped, it crashed, etc.) and it deletes
-the corresponding image from the communication gist. In case that the bot in fact comes back online, it will detect the
-deleted image and re-register by creating a new random name.
+the corresponding image from the communication gist. In case that the bot in fact comes back online, it will detect that
+is registration was deleted (its was deleted image) and re-register itself by creating a new random name (and pushing
+the new image).
 
-If the bots is terminated gracefully (either via the `terminate` command or manually by pressing `Ctr-C`), it deletes
-its own image (and push the changes to the gist).
+If the bot is terminated gracefully (either via the `terminate` command or manually by pressing `Ctr-C`), it deletes
+its own image (and pushes that change to the gist).
 
 The controller sends commands to bots via a copy of the control image [security.jpg](./template/security.jpg)
 which contains a hidden `state.json` file. The `state.json` file contains a map (dictionary) that specifies a command
@@ -149,7 +151,7 @@ the pending command:
 }
 ```
 
-Next time, the **7273-netcat.jpg** bot pull the latest changes, it sees that there is no command for it and in turn it
+Next time, the **8142-joy.png** bot pull the latest changes, it sees that there is no command for it and in turn it
 updates its state to:
 ```json
 {
@@ -158,6 +160,11 @@ updates its state to:
 }
 ```
 
+Result of the `copy_from` command contains an extra `files` field which contains the name(s) of the copied file(s).
+Currently, there is always only one file in the `files` array/list in the `copy_from` command result.
+The copied file is transferred hidden in the bot's image file along with the usual `state.json` file (every image
+contains a hidden zip archive that can contain multiple files, normally there is only `state.json` file inside).
+
 
 ### Controlling the controller
 
@@ -165,9 +172,9 @@ The controller has a built-in REPL (Read–Eval–Print Loop) that allows the us
 Currently, it does not support history and arrow navigation.
 Note that the REPL does not block the periodical updates.
 
-In oder to see all available commands together with their short description, the user can use `help` or `?` commands.
-Below you can see all the available commands (the output of the `help` command). Refer to the [Features](#features)
-section to see colored output.
+In oder to see all the available commands together with their short description, the user can use `help` or `?`
+commands.
+Below you can see the output of the `help` command. Refer to the [Features](#features) section to see it with colors.
 ```text
 Auto update in 30 seconds. Press enter to force update.
 Press Ctrl-C to stop.
@@ -184,7 +191,7 @@ terminate <bot>
   Terminates the bot.
 shell <bot> <command>
   Runs the given command on the bot using the following Python code.
-    subprocess.run(args=[<command>], shell=True)
+    subprocess.run(args=<command>, shell=True)
   Note: <command> might contain spaces. Even the leading/trailing spaces are preserved.
   See https://docs.python.org/3.8/library/subprocess.html#subprocess.run.
 run <bot> <command>
