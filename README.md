@@ -1,7 +1,5 @@
 # bot
 
-🚧 **Note:** This is a work-in-progress. The implementation is not finished yet. 🚧
-
 A simple Python bot and a controller that uses [gist.github.com] for communication.
 
 ❗️ **Note:** This very simple bot was created purely for learning purposes as a solution of the "Black Gate" task from
@@ -15,8 +13,11 @@ the final Stage 5 of the Bonus Assignment from the [CTU FEE][ctu-fee] ([ČVUT FE
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 
 - [Background](#background)
+- [Features](#features)
 - [Implementation](#implementation)
 - [Usage](#usage)
+	- [Controller](#controller)
+	- [Bot](#bot)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -29,6 +30,13 @@ The task's description from the CTFd:
 > file for the details.
 
 See the [instructions.txt](./instructions.txt) for the details.
+
+
+## Features
+
+There is a lot of nice features.
+
+TODO: document them
 
 
 ## Implementation
@@ -55,12 +63,107 @@ to the controller and to any bot via arguments (see [Usage](#usage) section).
 Both the controller and the bots periodically (currently the period is set to 30 seconds) pull the latest changes from
 the communication's Gist using `git`.
 
-TODO finish implementation description
+TODO finish description of the implementation
 
 
 ## Usage
 
-TODO document
+**Requirements:** (same both for the controller's machine and any bot's machine)
+* Python 3.8+
+* POSIX compliant system
+* `zip`, `unzip`, `git`, `touch`
+* network access to [gist.github.com]
+* a writable working directory
+
+**Note:** The startup order does not matter. The controller does not have to be running
+in order for the bots to be working.
+
+
+### Controller
+
+The controller consists of 2 source files ([common.py](./src/common.py) and [controller.py](./src/controller.py)).
+Place them in one (the same) directory.
+
+Start the controller by running and providing at least `workdir`, `gist` and `token` positional arguments:
+```bash
+python3 controller.py workdir gist token
+```
+
+For a demo values of `gist` and `token` arguments, refer to Stage 5 description
+in [Martin Endler BSY 2022/2023 Bonus Assignment report][report] (note: the report is shared only with the BSY course's
+teachers).
+
+You can use pass the `--help` argument to see the usage:
+```text
+usage: controller.py [-h] [--author AUTHOR] [--recreate] [--skip-init-reset] [--skip-init-pull] [--fast-init] workdir gist token
+
+positional arguments:
+  workdir            work directory where the files and directories created by the controller will be put
+  gist               ID of the GitHub Gist for communication with bots
+  token              GitHub Personal access token (classic) with (at least) gist scope
+
+optional arguments:
+  -h, --help         show this help message and exit
+  --author AUTHOR    override the default git commit author (useful when you don't want to leak your global git config author value)
+  --recreate         remove and recreate the workdir even if it already exists
+  --skip-init-reset  skip resetting the git repos if they already exist
+  --skip-init-pull   skip updating the git repos if they already exist
+  --fast-init        shortcut for combination of of --skip-init-reset and --skip-init-pull
+```
+
+If you want, you can directly clone this repository and use the following command, where you have to provide only
+the `gist` and `token` arguments:
+```bash
+python3 src/controller.py data/controller gist token
+```
+
+For a demo values of `gist` and `token` arguments, refer to Stage 5 description
+in [Martin Endler BSY 2022/2023 Bonus Assignment report][report] (note: the report is shared only with the BSY course's
+teachers).
+
+
+### Bot
+
+The bot consists of 2 source files ([common.py](./src/common.py) and [bot.py](./src/bot.py)).
+Place them in one (the same) directory.
+
+Start the bot by running and providing at least `workdir`, `gist` and `token` positional arguments:
+```bash
+python3 bot.py workdir gist token
+```
+
+For a demo values of `gist` and `token` arguments, refer to Stage 5 description
+in [Martin Endler BSY 2022/2023 Bonus Assignment report][report] (note: the report is shared only with the BSY course's
+teachers).
+
+You can use pass the `--help` argument to see the usage:
+```text
+usage: bot.py [-h] [--author AUTHOR] [--recreate] [--skip-init-reset] [--skip-init-pull] [--fast-init] workdir gist token
+
+positional arguments:
+  workdir            work directory where the files and directories created by the bot will be put
+  gist               ID of the GitHub Gist for communication with bots
+  token              GitHub Personal access token (classic) with (at least) gist scope
+
+optional arguments:
+  -h, --help         show this help message and exit
+  --author AUTHOR    override the default git commit author (useful when you don't want to leak your global git config author value)
+  --recreate         remove and recreate the workdir even if it already exists
+  --skip-init-reset  skip resetting the git repos if they already exist
+  --skip-init-pull   skip updating the git repos if they already exist
+  --fast-init        shortcut for combination of of --skip-init-reset and --skip-init-pull
+```
+
+If you want, you can directly clone this repository and use the following command, where you have to provide only
+the `gist` and `token` arguments:
+```bash
+python3 src/bot.py data/bot1 gist token
+```
+
+For a demo values of `gist` and `token` arguments, refer to Stage 5 description
+in [Martin Endler BSY 2022/2023 Bonus Assignment report][report] (note: the report is shared only with the BSY course's
+teachers).
+
 
 
 <!-- links references -->
@@ -72,3 +175,5 @@ TODO document
 [ctu-fee-bsy]: https://cw.fel.cvut.cz/b221/courses/bsy/start
 
 [gist.github.com]: https://gist.github.com/
+
+[report]: https://docs.google.com/document/d/11WQoUg7aVeZ0qubD14JCPRX5W1x1y-dsNeIVRHi2daA/edit?usp=sharing
