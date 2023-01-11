@@ -30,7 +30,13 @@ def format_timestamp(millis: int) -> str:
     return datetime.fromtimestamp(millis / 1000).strftime("%m/%d/%Y at %H:%M:%S")
 
 
-def encode_data(image_file: str, data: Any, output_file: str, additional_files_to_zip: Optional[List[str]] = None):
+def encode_data(
+    image_file: str,
+    data: Any,
+    output_file: str,
+    additional_files_to_zip: Optional[List[str]] = None,
+    remove_additional_files_after_zip: bool = False,
+):
     with open(TMP_STATE_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False)
     subprocess.check_call(
@@ -58,6 +64,10 @@ def encode_data(image_file: str, data: Any, output_file: str, additional_files_t
     )
     os.remove(TMP_STATE_FILE)
     os.remove(TMP_ZIP_FILE)
+    if isinstance(additional_files_to_zip, list) and remove_additional_files_after_zip:
+        for f in additional_files_to_zip:
+            os.remove(f)
+    pass
 
 
 def decode_data(image_file_with_data: str, out_dir: Optional[str] = None) -> Any:
