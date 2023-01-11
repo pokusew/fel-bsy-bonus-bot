@@ -34,9 +34,24 @@ See the [instructions.txt](./instructions.txt) for the details.
 
 ## Features
 
-There is a lot of nice features.
+* [gist.github.com] is used for communication
+* all messages between the controller and the bots are passed hidden in [the tech meme images][images-lib-gist] 🖼️
+  so that communication is not (so) suspicious 🤪
+* virtually unlimited number of bots 🤖
+* the controller checks if the bots are alive ❤️ and maintains an up-to-date list of currently available bots
+* the controller does not have to be running all the time in order for the bots to be working
+* the controller allows to send commands to a selected (currently available) bot
+	* `terminate` – terminate the bot
+	* `shell`, `run` – an arbitrary command with arbitrary arguments can be executed on the bot (either in shell or
+	  without shell), any spaces within arguments and even the command name are correctly handled and supported as well
+	* `copyFrom` – copy an arbitrary file from the bot to the controller, the file name can contain spaces (it is
+	  correctly handled)
+* another commands to other bots can be sent while waiting on a reply for a bot
+	* once the controller receives a reply to a pending command, it informs the user
 
-TODO: document them
+<p align="center">
+<img alt="Available command in the controller" title="Available command in the controller" src="./docs/controller-commands.png" width="640" />
+</p>
 
 
 ## Implementation
@@ -53,7 +68,7 @@ We are using the same steganography technique that was used in Stage 3 (appendin
 image file).
 
 Upon their startup, the controller and the bots download the memes library from
-[this Gist](https://gist.github.com/pokusew/4c7fe7e6d06b0b90ab4848b234209e95). Note that this Gist is read-only
+[this Gist][images-lib-gist]. Note that this Gist is read-only
 (neither the controller nor the bots have write access).
 
 For the actual communication, another Gist is used. ID of that Gist together with the owner's GitHub
@@ -177,3 +192,5 @@ teachers).
 [gist.github.com]: https://gist.github.com/
 
 [report]: https://docs.google.com/document/d/11WQoUg7aVeZ0qubD14JCPRX5W1x1y-dsNeIVRHi2daA/edit?usp=sharing
+
+[images-lib-gist]: https://gist.github.com/pokusew/4c7fe7e6d06b0b90ab4848b234209e95
