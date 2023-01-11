@@ -286,7 +286,7 @@ class Controller(ParticipantBase):
             f'  {gray}Terminates the bot.{rst}\n'
             f'{cyan}shell {yellow}<bot> {magenta}<command>{rst}\n'
             f'  {gray}Runs the given command on the bot using the following Python code.\n'
-            f'    subprocess.run(args=[{magenta}<command>{rst}{gray}], shell={magenta}True{rst}{gray})\n'
+            f'    subprocess.run(args={magenta}<command>{rst}{gray}, shell={magenta}True{rst}{gray})\n'
             f'  Note: <command> might contain spaces. Even the leading/trailing spaces are preserved.\n'
             f'  See https://docs.python.org/3.8/library/subprocess.html#subprocess.run.{rst}\n'
             f'{cyan}run {yellow}<bot> {magenta}<command>{rst}\n'
