@@ -1,83 +1,27 @@
 import argparse
 import os
 import select
-import shutil
 import sys
 from typing import Optional, Any, Dict, Union
 import random
 
-from terminal import gray, rst, cyan, magenta, yellow, green
+from terminal import gray, rst, cyan, magenta, yellow, green, red
 from common import \
-    GithubGistClient, \
-    IMAGES_LIBRARY, \
     CONTROL_IMAGE, \
     UPDATE_INTERVAL, \
     now_ms, \
-    is_image, \
     decode_data, \
-    encode_data, format_timestamp
+    encode_data, \
+    format_timestamp, \
+    ParticipantBase
 
 import subprocess
 
 
-class Bot:
-
-    def __init__(
-        self,
-        workdir: str,
-        gist: str,
-        token: str,
-        author: Optional[str] = None,
-        recreate_workdir: bool = False,
-        skip_init_reset: bool = False,
-        skip_init_pull: bool = False,
-    ) -> None:
-        self._workdir = os.path.abspath(workdir)
-        self._gist = gist
-        self._token = token
-        self._recreate_workdir = recreate_workdir
-        self._skip_init_reset = skip_init_reset
-        self._skip_init_pull = skip_init_pull
-
-        self._lib_client = GithubGistClient(
-            gist=IMAGES_LIBRARY,
-            repo_dir=os.path.join(self._workdir, 'lib'),
-        )
-
-        self._comm_client = GithubGistClient(
-            gist=self._gist,
-            token=self._token,
-            repo_dir=os.path.join(self._workdir, 'comm'),
-            author=author,
-        )
-
-    def _ensure_workdir(self) -> None:
-        if os.path.isdir(self._workdir) and self._recreate_workdir:
-            print(f'{gray}removing and re-creating workdir {magenta}{self._workdir}{gray}...{rst}')
-            shutil.rmtree(self._workdir)
-        if not os.path.isdir(self._workdir):
-            os.makedirs(self._workdir)
-        os.chdir(self._workdir)
-        print(f'{gray}workdir ready and set as the process current working dir{rst}')
+class Bot(ParticipantBase):
 
     def _setup(self) -> None:
-        self._ensure_workdir()
-
-        print(f'{gray}initializing images library to...{rst}')
-        self._lib_client.init(
-            skip_reset=self._skip_init_reset,
-            skip_pull=self._skip_init_pull,
-        )
-        self._load_lib_images()
-
-        print(
-            f'{gray}initializing the gist from {magenta}{self._comm_client.get_https_url(with_token=False)}{gray}'
-            f' to {magenta}{self._comm_client.get_repo_dir()}{gray} ...{rst}'
-        )
-        self._comm_client.init(
-            skip_reset=self._skip_init_reset,
-            skip_pull=self._skip_init_pull,
-        )
+        super()._setup()
 
         self._name = None
         self._image = None
@@ -99,7 +43,7 @@ class Bot:
             self._update_state()
             print(
                 f'\nAuto update in {cyan}{UPDATE_INTERVAL}{rst} seconds. Press {yellow}enter{rst} to force update.\n'
-                f'Press {yellow}Ctrl-C{rst} to unregister and terminate.\n',
+                f'Press {red}Ctrl-C{rst} to unregister and terminate.\n',
                 end='',
             )
             ready_read, _, _ = select.select([sys.stdin], [], [], UPDATE_INTERVAL)
@@ -189,14 +133,6 @@ class Bot:
 
         pass
 
-    def _load_lib_images(self):
-        self._lib_images = set(filter(is_image, os.listdir('lib')))
-        print(f'library contains {cyan}{len(self._lib_images)}{rst} images')
-        # for img in self._lib_images:
-        #     print(f'  {img}')
-        if CONTROL_IMAGE not in self._lib_images:
-            raise RuntimeError(f'Control image {CONTROL_IMAGE} is not the library!')
-
     # COMMANDS
 
     def _handle_terminate_command(self) -> None:
@@ -208,8 +144,6 @@ class Bot:
 
     def _handle_copy_from_command(self, file_name: str) -> None:
         pass
-
-    pass
 
 
 if __name__ == '__main__':

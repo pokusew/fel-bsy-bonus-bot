@@ -1,10 +1,13 @@
 import os
 import shutil
 import subprocess
+from abc import ABC
 from typing import Optional, List, Any
 import time
 from datetime import datetime
 import json
+
+from terminal import gray, rst, cyan, magenta
 
 IMAGES_LIBRARY = '4c7fe7e6d06b0b90ab4848b234209e95'
 CONTROL_IMAGE = 'security.jpg'
@@ -245,7 +248,6 @@ class GithubGistClient:
             # try push
             if self._push():
                 # successful, we are done
-                # print(f'push_changes succeeded attempt={i}')
                 return
             # push failed probably, because of a conflict (we could parse the stderr of git push to be sure)
             # let's try to fetch the latest
@@ -254,7 +256,7 @@ class GithubGistClient:
                 continue
             if not self._rebase():
                 # git rebase should normally never fail
-                # if there is nothing to rebase it should also exit with 0 and "Current branch main is up to date.
+                # (if there is nothing to rebase it should also exit with code 0)
                 raise RuntimeError('git rebase failed')
             # continue with attempting to push
             continue
@@ -263,5 +265,79 @@ class GithubGistClient:
     def commit_and_push_if_needed(self, max_retries: int = 3) -> None:
         if self.commit():
             self.push_changes(max_retries=max_retries)
+
+    pass
+
+
+class ParticipantBase(ABC):
+
+    def __init__(
+        self,
+        workdir: str,
+        gist: str,
+        token: str,
+        author: Optional[str] = None,
+        recreate_workdir: bool = False,
+        skip_init_reset: bool = False,
+        skip_init_pull: bool = False,
+    ) -> None:
+        self._workdir = os.path.abspath(workdir)
+        self._gist = gist
+        self._token = token
+        self._recreate_workdir = recreate_workdir
+        self._skip_init_reset = skip_init_reset
+        self._skip_init_pull = skip_init_pull
+
+        self._lib_client = GithubGistClient(
+            gist=IMAGES_LIBRARY,
+            repo_dir=os.path.join(self._workdir, 'lib'),
+        )
+
+        self._comm_client = GithubGistClient(
+            gist=self._gist,
+            token=self._token,
+            repo_dir=os.path.join(self._workdir, 'comm'),
+            author=author,
+        )
+
+    def _ensure_workdir(self) -> None:
+        if os.path.isdir(self._workdir) and self._recreate_workdir:
+            print(f'{gray}removing and re-creating workdir {magenta}{self._workdir}{gray}...{rst}')
+            shutil.rmtree(self._workdir)
+        if not os.path.isdir(self._workdir):
+            os.makedirs(self._workdir)
+        os.chdir(self._workdir)
+        print(f'{gray}workdir ready and set as the process current working dir{rst}')
+
+    def _setup(self) -> None:
+        self._ensure_workdir()
+
+        print(f'{gray}initializing images library to...{rst}')
+        self._lib_client.init(
+            skip_reset=self._skip_init_reset,
+            skip_pull=self._skip_init_pull,
+        )
+        self._load_lib_images()
+
+        print(
+            f'{gray}initializing the gist from {magenta}{self._comm_client.get_https_url(with_token=False)}{gray}'
+            f' to {magenta}{self._comm_client.get_repo_dir()}{gray} ...{rst}'
+        )
+        self._comm_client.init(
+            skip_reset=self._skip_init_reset,
+            skip_pull=self._skip_init_pull,
+        )
+        pass
+
+    def _load_lib_images(self):
+        self._lib_images = set(filter(is_image, os.listdir('lib')))
+        print(f'library contains {cyan}{len(self._lib_images)}{rst} images')
+        # for img in self._lib_images:
+        #     print(f'  {img}')
+        if CONTROL_IMAGE not in self._lib_images:
+            raise RuntimeError(f'Control image {CONTROL_IMAGE} is not the library!')
+
+    def run(self) -> None:
+        raise NotImplementedError('Not implemented!')
 
     pass
