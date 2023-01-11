@@ -278,9 +278,9 @@ class Controller(ParticipantBase):
     def _print_help() -> None:
         print(
             f'\n{red}AVAILABLE COMMANDS:\n\n'
-            f'{cyan}help{rst}\n'
+            f'{cyan}?{rst} {gray}or{rst} {cyan}help{rst}\n'
             f'  {gray}Prints this help.{rst}\n'
-            f'{cyan}bots\n'
+            f'{cyan}bots{rst}\n'
             f'  {gray}Lists all bots and their status.{rst}\n'
             f'{cyan}terminate {yellow}<bot>{rst}\n'
             f'  {gray}Terminates the bot.{rst}\n'
