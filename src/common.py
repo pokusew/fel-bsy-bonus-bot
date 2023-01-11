@@ -57,24 +57,29 @@ def encode_data(image_file: str, data: Any, output_file: str):
     os.remove(TMP_ZIP_FILE)
 
 
-def decode_data(image_file_with_data: str) -> Any:
+def decode_data(image_file_with_data: str, out_dir: Optional[str] = None) -> Any:
     # we are not checking exit code here because while unzipping the images with appended ZIP data
     # unzip produces warning [<file name>]:  xxx extra bytes at beginning or within zipfile
     # and exits a non-zero exit code
     # we could parse its stdout/stderr to find out if something was actually extracted
+    # -j junk paths (do not make directories)
+    # -o overwrite files WITHOUT prompting
+    args = ['unzip', '-jo', image_file_with_data]
+    if out_dir is not None:
+        # -d exdir An optional directory to which to extract files
+        args += ['-d', out_dir]
     subprocess.call(
-        # -j junk paths (do not make directories)
-        # -o overwrite files WITHOUT prompting
-        args=['unzip', '-jo', image_file_with_data],
+        args=args,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
     data = None
-    if os.path.isfile(TMP_STATE_FILE):
-        with open(TMP_STATE_FILE, 'r', encoding='utf-8') as f:
+    tmp_state_file = os.path.join(out_dir, TMP_STATE_FILE) if out_dir is not None else TMP_STATE_FILE
+    if os.path.isfile(tmp_state_file):
+        with open(tmp_state_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
-        os.remove(TMP_STATE_FILE)
-    # note: if there were multiple files extracted from the image, they will remain in the workdir
+        os.remove(tmp_state_file)
+    # note: if there were multiple files extracted from the image, they will remain in the workdir (resp. out_dir)
     return data
 
 
