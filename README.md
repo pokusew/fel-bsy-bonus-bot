@@ -53,7 +53,7 @@ See the [instructions.txt](./instructions.txt) for the details.
 	* once the controller receives a reply to a pending command, it informs the user
 
 <p align="center">
-<img alt="Available command in the controller" title="Available command in the controller" src="./docs/controller-commands.png" width="640" />
+<img alt="Available command in the controller" title="Available command in the controller" src="./docs/controller-commands.png" width="630" />
 </p>
 
 
