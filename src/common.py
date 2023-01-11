@@ -30,7 +30,7 @@ def format_timestamp(millis: int) -> str:
     return datetime.fromtimestamp(millis / 1000).strftime("%m/%d/%Y at %H:%M:%S")
 
 
-def encode_data(image_file: str, data: Any, output_file: str):
+def encode_data(image_file: str, data: Any, output_file: str, additional_files_to_zip: Optional[List[str]] = None):
     with open(TMP_STATE_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False)
     subprocess.check_call(
@@ -39,11 +39,14 @@ def encode_data(image_file: str, data: Any, output_file: str):
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+    # -j junk paths (do not make directories)
+    # -X Do not save extra file attributes (Extended Attributes on OS/2, uid/gid and file times on Unix).
+    #    see https://stackoverflow.com/a/9714323
+    zip_args = ['zip', '-jX', TMP_ZIP_FILE, TMP_STATE_FILE]
+    if isinstance(additional_files_to_zip, list):
+        zip_args += additional_files_to_zip
     subprocess.check_call(
-        # -j junk paths (do not make directories)
-        # -X Do not save extra file attributes (Extended Attributes on OS/2, uid/gid and file times on Unix).
-        #    see https://stackoverflow.com/a/9714323
-        args=['zip', '-jX', TMP_ZIP_FILE, TMP_STATE_FILE],
+        args=zip_args,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
